@@ -120,7 +120,11 @@ impl<'a> fmt::Display for TypeInfo<'a> {
 
                 write!(f, "{}", DataTypeDisplay(elem_type))?;
 
-                let shape = &tensor.shape.as_ref().unwrap().dim;
+                let empty_shape = Vec::new();
+                let shape = tensor
+                    .shape
+                    .as_ref()
+                    .map_or(&empty_shape, |shape| &shape.dim);
 
                 if shape.len() > 0 {
                     write!(f, "[")?;
@@ -128,13 +132,16 @@ impl<'a> fmt::Display for TypeInfo<'a> {
                     let mut dim_iter = tensor.shape.as_ref().unwrap().dim.iter().peekable();
 
                     while let Some(d) = dim_iter.next() {
-                        match d.value.as_ref().unwrap() {
-                            onnx::tensor_shape_proto::dimension::Value::DimValue(val) => {
+                        match d.value.as_ref() {
+                            Some(onnx::tensor_shape_proto::dimension::Value::DimValue(val)) => {
                                 write!(f, "{}", val)?
                             }
-                            onnx::tensor_shape_proto::dimension::Value::DimParam(name) => {
+                            Some(onnx::tensor_shape_proto::dimension::Value::DimParam(name)) => {
                                 write!(f, "{}", name)?
                             }
+                            None => {
+                                write!(f, "?")?
+                            },
                         }
 
                         if dim_iter.peek().is_some() {
@@ -147,9 +154,41 @@ impl<'a> fmt::Display for TypeInfo<'a> {
 
                 Ok(())
             }
-            onnx::type_proto::Value::SequenceType(_) => todo!(),
-            onnx::type_proto::Value::MapType(_) => todo!(),
-            onnx::type_proto::Value::OptionalType(_) => todo!(),
+            onnx::type_proto::Value::SequenceType(seq) => {
+                write!(f, "sequence<")?;
+
+                if let Some(elem) = seq.elem_type.as_deref() {
+                    write!(f, "{}", TypeInfo(elem))?;
+                } else {
+                    write!(f, "??")?;
+                }
+
+                write!(f, ">")
+            }
+            onnx::type_proto::Value::MapType(map) => {
+                let key =
+                    DataTypeDisplay(onnx::tensor_proto::DataType::from_i32(map.key_type).unwrap());
+
+                write!(f, "map<{},", key)?;
+
+                if let Some(elem) = map.value_type.as_deref() {
+                    write!(f, "{}", TypeInfo(elem))?;
+                } else {
+                    write!(f, "??")?;
+                }
+
+                write!(f, ">")
+            }
+            onnx::type_proto::Value::OptionalType(opt) => {
+                write!(f, "optional<")?;
+                if let Some(elem) = opt.elem_type.as_deref() {
+                    write!(f, "{}", TypeInfo(elem))?;
+                }
+                else {
+                    write!(f, "??")?;
+                }
+                write!(f, ">")
+            }
             onnx::type_proto::Value::SparseTensorType(_) => todo!(),
         }
     }

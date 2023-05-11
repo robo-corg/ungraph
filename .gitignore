@@ -2,3 +2,4 @@
 *.onnx
 graph.png
 *.pb
+logs
