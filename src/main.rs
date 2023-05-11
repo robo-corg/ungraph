@@ -1,9 +1,9 @@
-use std::fmt;
 use petgraph::dot::{self, Dot};
 use petgraph::graph;
 use petgraph::prelude::DiGraphMap;
 use prost::Message;
 use std::collections::HashMap;
+use std::fmt;
 use std::path::PathBuf;
 use std::{fs, os};
 
@@ -13,7 +13,7 @@ pub mod onnx {
 
 use clap::Parser;
 
-use crate::onnx::{NodeProto, ValueInfoProto, TypeProto};
+use crate::onnx::{NodeProto, TensorProto, TypeProto, ValueInfoProto};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -24,6 +24,7 @@ struct Args {
 
 type ValueId = usize;
 type NodeId = usize;
+type InitId = usize;
 
 struct IdMapper<T> {
     mapping: HashMap<String, usize>,
@@ -64,6 +65,7 @@ impl<T> IdMapper<T> {
 
 enum ValueSource {
     Node(NodeId),
+    Initializer(InitId),
 }
 
 struct ValueInfo {
@@ -110,7 +112,7 @@ impl fmt::Display for DataTypeDisplay {
 
 struct TypeInfo<'a>(&'a TypeProto);
 
-impl <'a> fmt::Display for TypeInfo<'a> {
+impl<'a> fmt::Display for TypeInfo<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0.value.as_ref().unwrap() {
             onnx::type_proto::Value::TensorType(tensor) => {
@@ -127,8 +129,12 @@ impl <'a> fmt::Display for TypeInfo<'a> {
 
                     while let Some(d) = dim_iter.next() {
                         match d.value.as_ref().unwrap() {
-                            onnx::tensor_shape_proto::dimension::Value::DimValue(val) => write!(f, "{}", val)?,
-                            onnx::tensor_shape_proto::dimension::Value::DimParam(name) => write!(f, "{}", name)?,
+                            onnx::tensor_shape_proto::dimension::Value::DimValue(val) => {
+                                write!(f, "{}", val)?
+                            }
+                            onnx::tensor_shape_proto::dimension::Value::DimParam(name) => {
+                                write!(f, "{}", name)?
+                            }
                         }
 
                         if dim_iter.peek().is_some() {
@@ -140,7 +146,7 @@ impl <'a> fmt::Display for TypeInfo<'a> {
                 }
 
                 Ok(())
-            },
+            }
             onnx::type_proto::Value::SequenceType(_) => todo!(),
             onnx::type_proto::Value::MapType(_) => todo!(),
             onnx::type_proto::Value::OptionalType(_) => todo!(),
@@ -191,6 +197,13 @@ impl OnnxModel {
 
         let mut node_graph: DiGraphMap<usize, usize> = DiGraphMap::new();
 
+        let init_map: HashMap<&str, InitId> = model_graph
+            .initializer
+            .iter()
+            .enumerate()
+            .map(|(index, init)| (init.name.as_str(), index))
+            .collect();
+
         for value_info in model_graph.value_info.iter() {
             values.insert(
                 &value_info.name,
@@ -202,11 +215,16 @@ impl OnnxModel {
         }
 
         for graph_input in model_graph.input.iter() {
+            let source = init_map
+                .get(graph_input.name.as_str())
+                .copied()
+                .map(ValueSource::Initializer);
+
             let value_id = values.insert(
                 &graph_input.name,
                 ValueInfo {
                     proto: graph_input.clone(),
-                    source: None,
+                    source,
                 },
             );
 
@@ -299,14 +317,21 @@ fn main() {
 
     let model = OnnxModel::from_proto(model_proto);
 
-
-    println!("ONNX Model: {} {} (v{})", &model.proto.domain, &model.graph_proto().name, model.proto.model_version);
+    println!(
+        "ONNX Model: {} {} (v{})",
+        &model.proto.domain,
+        &model.graph_proto().name,
+        model.proto.model_version
+    );
     if model.proto.doc_string.len() > 0 {
         println!("{}", model.proto.doc_string);
     }
     println!("");
 
-    println!("Producer: {} {}", model.proto.producer_name, model.proto.producer_version);
+    println!(
+        "Producer: {} {}",
+        model.proto.producer_name, model.proto.producer_version
+    );
     println!("");
 
     println!("IR Version: {}", model.proto.ir_version);
@@ -327,7 +352,9 @@ fn main() {
     println!("Inputs:");
 
     for input in model.inputs() {
-        println!("    {}: {}", input.name(), input.type_info());
+        if input.source.is_none() {
+            println!("    {}: {}", input.name(), input.type_info());
+        }
     }
 
     println!("Outputs:");
@@ -343,4 +370,10 @@ fn main() {
     //dbg!(model);
 
     //dbg!(&model.graph_proto().node);
+
+    //dbg!(&model.graph_proto().initializer);
+
+    // for init in model.graph_proto().initializer.iter() {
+    //     println!("{}", init.name);
+    // }
 }
