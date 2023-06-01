@@ -460,6 +460,7 @@ dependencies = [
 name = "ungraph"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap",
  "petgraph",
  "prost",
