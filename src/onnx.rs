@@ -2,6 +2,7 @@ use petgraph::dot::{self, Dot};
 use petgraph::graph;
 use petgraph::prelude::DiGraphMap;
 use prost::Message;
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
@@ -206,6 +207,12 @@ pub struct OnnxModel {
     outputs: Vec<ValueId>,
 }
 
+impl <'a> From<&'a ValueInfo> for summary::Value<'a> {
+    fn from(value: &'a ValueInfo) -> Self {
+        summary::Value { name: value.name(), ty: value.type_info() }
+    }
+}
+
 impl OnnxModel {
     pub fn graph_proto(&self) -> &onnx_proto::GraphProto {
         self.proto.graph.as_ref().unwrap()
@@ -342,16 +349,17 @@ impl OnnxModel {
         let mut node_counts = HashMap::new();
 
         for node in self.nodes.iter() {
-            let count = node_counts.entry(node.proto.op_type.as_str()).or_default();
+            let count = node_counts.entry((&node.proto.domain, node.proto.op_type.as_str())).or_default();
             *count += 1;
         }
 
-        let mut operators: Vec<OperatorUsage> = node_counts.into_iter().map(|(name, count)| OperatorUsage {
+        let mut operators: Vec<OperatorUsage> = node_counts.into_iter().map(|((domain, name), count)| OperatorUsage {
+            domain:  if domain == "" { "ai.onnx" } else { domain },
             name,
             count,
         }).collect();
 
-        operators.sort_by_key(|op| op.count);
+        operators.sort_by_key(|op| Reverse(op.count));
 
         let operator_summary = OperatorUsageSummary {
             operators
@@ -371,8 +379,9 @@ impl OnnxModel {
                     version: opset.version,
                 }
             }).collect(),
-            inputs: self.inputs().collect(),
-            outputs: self.outputs().collect(),
+            // Filter out inputs that have initializers or node inputs etc...
+            inputs: self.inputs().filter(|v| v.source.is_none()).map(summary::Value::from).collect(),
+            outputs: self.outputs().map(summary::Value::from).collect(),
             operator_summary
         }
     }
