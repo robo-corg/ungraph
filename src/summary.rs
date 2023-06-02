@@ -17,7 +17,17 @@ pub struct OnnxSummary<'a> {
     pub ir_version: i64,
     pub opsets: Vec<OnnxOpset<'a>>,
     pub inputs: Vec<&'a ValueInfo>,
-    pub outputs: Vec<&'a ValueInfo>
+    pub outputs: Vec<&'a ValueInfo>,
+    pub operator_summary: OperatorUsageSummary<'a>
+}
+
+pub struct OperatorUsage<'a> {
+    pub name: &'a str,
+    pub count: usize
+}
+
+pub struct OperatorUsageSummary<'a> {
+    pub operators: Vec<OperatorUsage<'a>>
 }
 
 impl <'a> fmt::Display for OnnxSummary<'a> {
@@ -64,6 +74,8 @@ impl <'a> fmt::Display for OnnxSummary<'a> {
         for output in self.outputs.iter() {
             writeln!(f, "    {}: {}", output.name(), output.type_info())?;
         }
+
+        writeln
 
         Ok(())
     }

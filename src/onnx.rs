@@ -15,7 +15,7 @@ pub mod onnx_proto {
 
 use onnx_proto::{NodeProto, TensorProto, TypeProto, ValueInfoProto};
 
-use crate::summary::{OnnxSummary, self};
+use crate::summary::{OnnxSummary, self, OperatorUsageSummary, OperatorUsage};
 
 type ValueId = usize;
 type NodeId = usize;
@@ -101,6 +101,10 @@ impl fmt::Display for DataTypeDisplay {
             onnx_proto::tensor_proto::DataType::Complex64 => write!(f, "complex64"),
             onnx_proto::tensor_proto::DataType::Complex128 => write!(f, "complex128"),
             onnx_proto::tensor_proto::DataType::Bfloat16 => write!(f, "bfloat16"),
+            onnx_proto::tensor_proto::DataType::Float8e4m3fn => write!(f, "f8e4m3fn"),
+            onnx_proto::tensor_proto::DataType::Float8e4m3fnuz => write!(f, "f8e4m3fnuz"),
+            onnx_proto::tensor_proto::DataType::Float8e5m2 => write!(f, "f8e5m2"),
+            onnx_proto::tensor_proto::DataType::Float8e5m2fnuz => write!(f, "f8e5m2fnuz"),
         }
     }
 }
@@ -335,6 +339,24 @@ impl OnnxModel {
     }
 
     pub fn summary<'a>(&'a self) -> OnnxSummary<'a> {
+        let mut node_counts = HashMap::new();
+
+        for node in self.nodes.iter() {
+            let count = node_counts.entry(node.proto.op_type.as_str()).or_default();
+            *count += 1;
+        }
+
+        let mut operators: Vec<OperatorUsage> = node_counts.into_iter().map(|(name, count)| OperatorUsage {
+            name,
+            count,
+        }).collect();
+
+        operators.sort_by_key(|op| op.count);
+
+        let operator_summary = OperatorUsageSummary {
+            operators
+        };
+
         OnnxSummary {
             domain: &self.proto.domain,
             name: &self.graph_proto().name,
@@ -351,6 +373,7 @@ impl OnnxModel {
             }).collect(),
             inputs: self.inputs().collect(),
             outputs: self.outputs().collect(),
+            operator_summary
         }
     }
 
