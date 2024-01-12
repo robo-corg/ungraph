@@ -9,7 +9,9 @@ use clap::{Parser, ValueEnum};
 use console::style;
 
 use crate::onnx::OnnxModel;
+use crate::safetensors::Safetensors;
 
+mod safetensors;
 mod onnx;
 mod summary;
 
@@ -45,7 +47,8 @@ fn main() {
 
     let model_bytes = fs::read(&args.model_file).unwrap();
 
-    let model = OnnxModel::from_bytes(model_bytes.as_slice()).unwrap();
+    //let model = OnnxModel::from_bytes(model_bytes.as_slice()).unwrap();
+    let model = Safetensors::from_bytes(model_bytes.into()).unwrap();
 
     let summary = model.summary();
 
