@@ -1,9 +1,13 @@
-use std::fmt;
+use std::{fmt, io};
 
 use console::Style;
 use serde::{Serialize, Serializer};
 
 use crate::onnx::{ValueInfo, TypeInfo};
+
+pub trait Summary: fmt::Display {
+    fn dump_json(&self, writer: &mut dyn io::Write) -> anyhow::Result<()> ;
+}
 
 #[derive(Serialize)]
 pub struct OnnxOpset<'a> {
@@ -36,6 +40,12 @@ pub struct OnnxSummary<'a> {
     pub inputs: Vec<Value<'a>>,
     pub outputs: Vec<Value<'a>>,
     pub operator_summary: OperatorUsageSummary<'a>
+}
+
+impl <'a> Summary for OnnxSummary<'a> {
+    fn dump_json(&self, writer: &mut dyn io::Write) -> anyhow::Result<()> {
+        Ok(serde_json::to_writer_pretty(writer, &self)?)
+    }
 }
 
 #[derive(Serialize)]

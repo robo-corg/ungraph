@@ -16,7 +16,8 @@ pub mod onnx_proto {
 
 use onnx_proto::{NodeProto, TensorProto, TypeProto, ValueInfoProto};
 
-use crate::summary::{OnnxSummary, self, OperatorUsageSummary, OperatorUsage};
+use crate::model::Model;
+use crate::summary::{OnnxSummary, self, OperatorUsageSummary, OperatorUsage, Summary};
 
 type ValueId = usize;
 type NodeId = usize;
@@ -345,7 +346,26 @@ impl OnnxModel {
         }
     }
 
-    pub fn summary<'a>(&'a self) -> OnnxSummary<'a> {
+    fn to_dot(&self) -> impl fmt::Display {
+        let dot_config = [dot::Config::NodeNoLabel];
+
+        let node_attr_getter =
+            |g, n: (usize, &usize)| format!("label = \"{}\"", &self.nodes[*n.1].proto.name);
+
+        format!(
+            "{}",
+            Dot::with_attr_getters(
+                &self.node_graph,
+                &dot_config,
+                &|g, e| String::new(),
+                &node_attr_getter,
+            )
+        )
+    }
+}
+
+impl Model for OnnxModel {
+    fn summary<'a>(&'a self, filename: Option<&'a str>) -> Box<dyn Summary + 'a> {
         let mut node_counts = HashMap::new();
 
         for node in self.nodes.iter() {
@@ -365,7 +385,7 @@ impl OnnxModel {
             operators
         };
 
-        OnnxSummary {
+        Box::new(OnnxSummary {
             domain: &self.proto.domain,
             name: &self.graph_proto().name,
             version: self.proto.model_version,
@@ -383,23 +403,6 @@ impl OnnxModel {
             inputs: self.inputs().filter(|v| v.source.is_none()).map(summary::Value::from).collect(),
             outputs: self.outputs().map(summary::Value::from).collect(),
             operator_summary
-        }
-    }
-
-    fn to_dot(&self) -> impl fmt::Display {
-        let dot_config = [dot::Config::NodeNoLabel];
-
-        let node_attr_getter =
-            |g, n: (usize, &usize)| format!("label = \"{}\"", &self.nodes[*n.1].proto.name);
-
-        format!(
-            "{}",
-            Dot::with_attr_getters(
-                &self.node_graph,
-                &dot_config,
-                &|g, e| String::new(),
-                &node_attr_getter,
-            )
-        )
+        })
     }
 }
