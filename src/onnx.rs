@@ -6,18 +6,15 @@ use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fmt;
 
-
-
 #[allow(non_snake_case)]
 pub mod onnx_proto {
     include!(concat!(env!("OUT_DIR"), "/onnx.rs"));
 }
 
-
 use onnx_proto::{NodeProto, TypeProto, ValueInfoProto};
 
 use crate::model::Model;
-use crate::summary::{OnnxSummary, self, OperatorUsageSummary, OperatorUsage, Summary};
+use crate::summary::{self, OnnxSummary, OperatorUsage, OperatorUsageSummary, Summary};
 
 type ValueId = usize;
 type NodeId = usize;
@@ -113,7 +110,8 @@ impl<'a> fmt::Display for TypeInfo<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0.value.as_ref().unwrap() {
             onnx_proto::type_proto::Value::TensorType(tensor) => {
-                let elem_type = onnx_proto::tensor_proto::DataType::from_i32(tensor.elem_type).unwrap();
+                let elem_type =
+                    onnx_proto::tensor_proto::DataType::from_i32(tensor.elem_type).unwrap();
 
                 write!(f, "{}", DataTypeDisplay(elem_type))?;
 
@@ -130,15 +128,13 @@ impl<'a> fmt::Display for TypeInfo<'a> {
 
                     while let Some(d) = dim_iter.next() {
                         match d.value.as_ref() {
-                            Some(onnx_proto::tensor_shape_proto::dimension::Value::DimValue(val)) => {
-                                write!(f, "{}", val)?
-                            }
-                            Some(onnx_proto::tensor_shape_proto::dimension::Value::DimParam(name)) => {
-                                write!(f, "{}", name)?
-                            }
-                            None => {
-                                write!(f, "?")?
-                            },
+                            Some(onnx_proto::tensor_shape_proto::dimension::Value::DimValue(
+                                val,
+                            )) => write!(f, "{}", val)?,
+                            Some(onnx_proto::tensor_shape_proto::dimension::Value::DimParam(
+                                name,
+                            )) => write!(f, "{}", name)?,
+                            None => write!(f, "?")?,
                         }
 
                         if dim_iter.peek().is_some() {
@@ -163,8 +159,9 @@ impl<'a> fmt::Display for TypeInfo<'a> {
                 write!(f, ">")
             }
             onnx_proto::type_proto::Value::MapType(map) => {
-                let key =
-                    DataTypeDisplay(onnx_proto::tensor_proto::DataType::from_i32(map.key_type).unwrap());
+                let key = DataTypeDisplay(
+                    onnx_proto::tensor_proto::DataType::from_i32(map.key_type).unwrap(),
+                );
 
                 write!(f, "map<{},", key)?;
 
@@ -180,8 +177,7 @@ impl<'a> fmt::Display for TypeInfo<'a> {
                 write!(f, "optional<")?;
                 if let Some(elem) = opt.elem_type.as_deref() {
                     write!(f, "{}", TypeInfo(elem))?;
-                }
-                else {
+                } else {
                     write!(f, "??")?;
                 }
                 write!(f, ">")
@@ -205,9 +201,12 @@ pub struct OnnxModel {
     outputs: Vec<ValueId>,
 }
 
-impl <'a> From<&'a ValueInfo> for summary::Value<'a> {
+impl<'a> From<&'a ValueInfo> for summary::Value<'a> {
     fn from(value: &'a ValueInfo) -> Self {
-        summary::Value { name: value.name(), ty: value.type_info() }
+        summary::Value {
+            name: value.name(),
+            ty: value.type_info(),
+        }
     }
 }
 
@@ -231,7 +230,8 @@ impl OnnxModel {
     }
 
     pub fn from_bytes<B>(model_bytes: B) -> anyhow::Result<Self>
-        where B: prost::bytes::Buf
+    where
+        B: prost::bytes::Buf,
     {
         let model_proto = onnx_proto::ModelProto::decode(model_bytes)?;
 
@@ -368,21 +368,24 @@ impl Model for OnnxModel {
         let mut node_counts = HashMap::new();
 
         for node in self.nodes.iter() {
-            let count = node_counts.entry((&node.proto.domain, node.proto.op_type.as_str())).or_default();
+            let count = node_counts
+                .entry((&node.proto.domain, node.proto.op_type.as_str()))
+                .or_default();
             *count += 1;
         }
 
-        let mut operators: Vec<OperatorUsage> = node_counts.into_iter().map(|((domain, name), count)| OperatorUsage {
-            domain:  if domain.is_empty() { "ai.onnx" } else { domain },
-            name,
-            count,
-        }).collect();
+        let mut operators: Vec<OperatorUsage> = node_counts
+            .into_iter()
+            .map(|((domain, name), count)| OperatorUsage {
+                domain: if domain.is_empty() { "ai.onnx" } else { domain },
+                name,
+                count,
+            })
+            .collect();
 
         operators.sort_by_key(|op| Reverse(op.count));
 
-        let operator_summary = OperatorUsageSummary {
-            operators
-        };
+        let operator_summary = OperatorUsageSummary { operators };
 
         Box::new(OnnxSummary {
             domain: &self.proto.domain,
@@ -392,16 +395,27 @@ impl Model for OnnxModel {
             producer_name: &self.proto.producer_name,
             producer_version: &self.proto.producer_version,
             ir_version: self.proto.ir_version,
-            opsets: self.proto.opset_import.iter().map(|opset| {
-                summary::OnnxOpset {
-                    name: if opset.domain.is_empty() { "ai.onnx" } else { &opset.domain },
+            opsets: self
+                .proto
+                .opset_import
+                .iter()
+                .map(|opset| summary::OnnxOpset {
+                    name: if opset.domain.is_empty() {
+                        "ai.onnx"
+                    } else {
+                        &opset.domain
+                    },
                     version: opset.version,
-                }
-            }).collect(),
+                })
+                .collect(),
             // Filter out inputs that have initializers or node inputs etc...
-            inputs: self.inputs().filter(|v| v.source.is_none()).map(summary::Value::from).collect(),
+            inputs: self
+                .inputs()
+                .filter(|v| v.source.is_none())
+                .map(summary::Value::from)
+                .collect(),
             outputs: self.outputs().map(summary::Value::from).collect(),
-            operator_summary
+            operator_summary,
         })
     }
 }

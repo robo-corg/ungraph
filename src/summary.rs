@@ -6,23 +6,26 @@ use serde::{Serialize, Serializer};
 use crate::onnx::TypeInfo;
 
 pub trait Summary: fmt::Display {
-    fn dump_json(&self, writer: &mut dyn io::Write) -> anyhow::Result<()> ;
+    fn dump_json(&self, writer: &mut dyn io::Write) -> anyhow::Result<()>;
 }
 
 #[derive(Serialize)]
 pub struct OnnxOpset<'a> {
     pub name: &'a str,
-    pub version: i64
+    pub version: i64,
 }
 
 #[derive(Serialize)]
 pub struct Value<'a> {
     pub name: &'a str,
     #[serde(serialize_with = "type_info_serializer")]
-    pub ty: TypeInfo<'a>
+    pub ty: TypeInfo<'a>,
 }
 
-fn type_info_serializer<S>(ty: &TypeInfo<'_>, s: S) -> Result<S::Ok, S::Error> where S: Serializer {
+fn type_info_serializer<S>(ty: &TypeInfo<'_>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
     let ty_str = format!("{}", ty);
     s.serialize_str(&ty_str)
 }
@@ -39,10 +42,10 @@ pub struct OnnxSummary<'a> {
     pub opsets: Vec<OnnxOpset<'a>>,
     pub inputs: Vec<Value<'a>>,
     pub outputs: Vec<Value<'a>>,
-    pub operator_summary: OperatorUsageSummary<'a>
+    pub operator_summary: OperatorUsageSummary<'a>,
 }
 
-impl <'a> Summary for OnnxSummary<'a> {
+impl<'a> Summary for OnnxSummary<'a> {
     fn dump_json(&self, writer: &mut dyn io::Write) -> anyhow::Result<()> {
         Ok(serde_json::to_writer_pretty(writer, &self)?)
     }
@@ -52,15 +55,15 @@ impl <'a> Summary for OnnxSummary<'a> {
 pub struct OperatorUsage<'a> {
     pub domain: &'a str,
     pub name: &'a str,
-    pub count: usize
+    pub count: usize,
 }
 
 #[derive(Serialize)]
 pub struct OperatorUsageSummary<'a> {
-    pub operators: Vec<OperatorUsage<'a>>
+    pub operators: Vec<OperatorUsage<'a>>,
 }
 
-impl <'a> fmt::Display for OnnxSummary<'a> {
+impl<'a> fmt::Display for OnnxSummary<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         //println!("This is {} neat", style("quite").bold());
         let bold = Style::new().bold();
