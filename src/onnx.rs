@@ -6,7 +6,7 @@ use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fmt;
 
-#[allow(non_snake_case)]
+#[allow(non_snake_case, clippy::all)]
 pub mod onnx_proto {
     include!(concat!(env!("OUT_DIR"), "/onnx.rs"));
 }
