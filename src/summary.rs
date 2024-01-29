@@ -1,24 +1,31 @@
-use std::fmt;
+use std::{fmt, io};
 
 use console::Style;
 use serde::{Serialize, Serializer};
 
-use crate::onnx::{ValueInfo, TypeInfo};
+use crate::onnx::TypeInfo;
+
+pub trait Summary: fmt::Display {
+    fn dump_json(&self, writer: &mut dyn io::Write) -> anyhow::Result<()>;
+}
 
 #[derive(Serialize)]
 pub struct OnnxOpset<'a> {
     pub name: &'a str,
-    pub version: i64
+    pub version: i64,
 }
 
 #[derive(Serialize)]
 pub struct Value<'a> {
     pub name: &'a str,
     #[serde(serialize_with = "type_info_serializer")]
-    pub ty: TypeInfo<'a>
+    pub ty: TypeInfo<'a>,
 }
 
-fn type_info_serializer<'a, S>(ty: &TypeInfo<'a>, s: S) -> Result<S::Ok, S::Error> where S: Serializer {
+fn type_info_serializer<S>(ty: &TypeInfo<'_>, s: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
     let ty_str = format!("{}", ty);
     s.serialize_str(&ty_str)
 }
@@ -35,22 +42,28 @@ pub struct OnnxSummary<'a> {
     pub opsets: Vec<OnnxOpset<'a>>,
     pub inputs: Vec<Value<'a>>,
     pub outputs: Vec<Value<'a>>,
-    pub operator_summary: OperatorUsageSummary<'a>
+    pub operator_summary: OperatorUsageSummary<'a>,
+}
+
+impl<'a> Summary for OnnxSummary<'a> {
+    fn dump_json(&self, writer: &mut dyn io::Write) -> anyhow::Result<()> {
+        Ok(serde_json::to_writer_pretty(writer, &self)?)
+    }
 }
 
 #[derive(Serialize)]
 pub struct OperatorUsage<'a> {
     pub domain: &'a str,
     pub name: &'a str,
-    pub count: usize
+    pub count: usize,
 }
 
 #[derive(Serialize)]
 pub struct OperatorUsageSummary<'a> {
-    pub operators: Vec<OperatorUsage<'a>>
+    pub operators: Vec<OperatorUsage<'a>>,
 }
 
-impl <'a> fmt::Display for OnnxSummary<'a> {
+impl<'a> fmt::Display for OnnxSummary<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         //println!("This is {} neat", style("quite").bold());
         let bold = Style::new().bold();
@@ -62,17 +75,17 @@ impl <'a> fmt::Display for OnnxSummary<'a> {
             self.name,
             self.version
         )?;
-        if self.doc_string.len() > 0 {
+        if !self.doc_string.is_empty() {
             writeln!(f, "{}", self.doc_string)?;
         }
-        writeln!(f, "")?;
+        writeln!(f)?;
 
         writeln!(
             f,
             "Producer: {} {}",
             self.producer_name, self.producer_version
         )?;
-        writeln!(f, "")?;
+        writeln!(f)?;
 
         writeln!(f, "IR Version: {}", self.ir_version)?;
         if self.opsets.len() == 1 {
@@ -83,7 +96,7 @@ impl <'a> fmt::Display for OnnxSummary<'a> {
             writeln!(f, "{} {}", &opset.name, opset.version)?;
         }
 
-        writeln!(f, "")?;
+        writeln!(f)?;
         writeln!(f, "{}", bold.apply_to("Inputs:"))?;
 
         for input in self.inputs.iter() {
@@ -96,7 +109,7 @@ impl <'a> fmt::Display for OnnxSummary<'a> {
             writeln!(f, "    {}: {}", output.name, output.ty)?;
         }
 
-        writeln!(f, "")?;
+        writeln!(f)?;
         writeln!(f, "Operators:")?;
         for oper in self.operator_summary.operators.iter() {
             writeln!(f, "    {}.{}: {}", oper.domain, oper.name, oper.count)?;

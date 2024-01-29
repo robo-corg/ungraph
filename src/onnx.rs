@@ -1,22 +1,20 @@
 use petgraph::dot::{self, Dot};
-use petgraph::graph;
+
 use petgraph::prelude::DiGraphMap;
 use prost::Message;
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fmt;
-use std::path::PathBuf;
-use std::{fs, os};
 
-
+#[allow(non_snake_case, clippy::all)]
 pub mod onnx_proto {
     include!(concat!(env!("OUT_DIR"), "/onnx.rs"));
 }
 
+use onnx_proto::{NodeProto, TypeProto, ValueInfoProto};
 
-use onnx_proto::{NodeProto, TensorProto, TypeProto, ValueInfoProto};
-
-use crate::summary::{OnnxSummary, self, OperatorUsageSummary, OperatorUsage};
+use crate::model::Model;
+use crate::summary::{self, OnnxSummary, OperatorUsage, OperatorUsageSummary, Summary};
 
 type ValueId = usize;
 type NodeId = usize;
@@ -44,10 +42,6 @@ impl<T> IdMapper<T> {
             mapping: Default::default(),
             values: Default::default(),
         }
-    }
-
-    fn get_by_name(&self, name: &str) -> Option<&T> {
-        self.mapping.get(name).map(|id| &self.values[*id])
     }
 
     fn get_id_by_name(&self, name: &str) -> Option<usize> {
@@ -116,7 +110,8 @@ impl<'a> fmt::Display for TypeInfo<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.0.value.as_ref().unwrap() {
             onnx_proto::type_proto::Value::TensorType(tensor) => {
-                let elem_type = onnx_proto::tensor_proto::DataType::from_i32(tensor.elem_type).unwrap();
+                let elem_type =
+                    onnx_proto::tensor_proto::DataType::from_i32(tensor.elem_type).unwrap();
 
                 write!(f, "{}", DataTypeDisplay(elem_type))?;
 
@@ -126,22 +121,20 @@ impl<'a> fmt::Display for TypeInfo<'a> {
                     .as_ref()
                     .map_or(&empty_shape, |shape| &shape.dim);
 
-                if shape.len() > 0 {
+                if !shape.is_empty() {
                     write!(f, "[")?;
 
                     let mut dim_iter = tensor.shape.as_ref().unwrap().dim.iter().peekable();
 
                     while let Some(d) = dim_iter.next() {
                         match d.value.as_ref() {
-                            Some(onnx_proto::tensor_shape_proto::dimension::Value::DimValue(val)) => {
-                                write!(f, "{}", val)?
-                            }
-                            Some(onnx_proto::tensor_shape_proto::dimension::Value::DimParam(name)) => {
-                                write!(f, "{}", name)?
-                            }
-                            None => {
-                                write!(f, "?")?
-                            },
+                            Some(onnx_proto::tensor_shape_proto::dimension::Value::DimValue(
+                                val,
+                            )) => write!(f, "{}", val)?,
+                            Some(onnx_proto::tensor_shape_proto::dimension::Value::DimParam(
+                                name,
+                            )) => write!(f, "{}", name)?,
+                            None => write!(f, "?")?,
                         }
 
                         if dim_iter.peek().is_some() {
@@ -166,8 +159,9 @@ impl<'a> fmt::Display for TypeInfo<'a> {
                 write!(f, ">")
             }
             onnx_proto::type_proto::Value::MapType(map) => {
-                let key =
-                    DataTypeDisplay(onnx_proto::tensor_proto::DataType::from_i32(map.key_type).unwrap());
+                let key = DataTypeDisplay(
+                    onnx_proto::tensor_proto::DataType::from_i32(map.key_type).unwrap(),
+                );
 
                 write!(f, "map<{},", key)?;
 
@@ -183,8 +177,7 @@ impl<'a> fmt::Display for TypeInfo<'a> {
                 write!(f, "optional<")?;
                 if let Some(elem) = opt.elem_type.as_deref() {
                     write!(f, "{}", TypeInfo(elem))?;
-                }
-                else {
+                } else {
                     write!(f, "??")?;
                 }
                 write!(f, ">")
@@ -202,14 +195,18 @@ pub struct OnnxModel {
     pub proto: onnx_proto::ModelProto,
     values: IdMapper<ValueInfo>,
     nodes: Vec<NodeInfo>,
+    #[allow(dead_code)]
     node_graph: DiGraphMap<usize, usize>,
     inputs: Vec<ValueId>,
     outputs: Vec<ValueId>,
 }
 
-impl <'a> From<&'a ValueInfo> for summary::Value<'a> {
+impl<'a> From<&'a ValueInfo> for summary::Value<'a> {
     fn from(value: &'a ValueInfo) -> Self {
-        summary::Value { name: value.name(), ty: value.type_info() }
+        summary::Value {
+            name: value.name(),
+            ty: value.type_info(),
+        }
     }
 }
 
@@ -233,7 +230,8 @@ impl OnnxModel {
     }
 
     pub fn from_bytes<B>(model_bytes: B) -> anyhow::Result<Self>
-        where B: prost::bytes::Buf
+    where
+        B: prost::bytes::Buf,
     {
         let model_proto = onnx_proto::ModelProto::decode(model_bytes)?;
 
@@ -345,27 +343,51 @@ impl OnnxModel {
         }
     }
 
-    pub fn summary<'a>(&'a self) -> OnnxSummary<'a> {
+    // TODO: Add back dot visualization
+    #[allow(dead_code)]
+    fn to_dot(&self) -> impl fmt::Display {
+        let dot_config = [dot::Config::NodeNoLabel];
+
+        let node_attr_getter =
+            |_g, n: (usize, &usize)| format!("label = \"{}\"", &self.nodes[*n.1].proto.name);
+
+        format!(
+            "{}",
+            Dot::with_attr_getters(
+                &self.node_graph,
+                &dot_config,
+                &|_g, _e| String::new(),
+                &node_attr_getter,
+            )
+        )
+    }
+}
+
+impl Model for OnnxModel {
+    fn summary<'a>(&'a self, _filename: Option<&'a str>) -> Box<dyn Summary + 'a> {
         let mut node_counts = HashMap::new();
 
         for node in self.nodes.iter() {
-            let count = node_counts.entry((&node.proto.domain, node.proto.op_type.as_str())).or_default();
+            let count = node_counts
+                .entry((&node.proto.domain, node.proto.op_type.as_str()))
+                .or_default();
             *count += 1;
         }
 
-        let mut operators: Vec<OperatorUsage> = node_counts.into_iter().map(|((domain, name), count)| OperatorUsage {
-            domain:  if domain == "" { "ai.onnx" } else { domain },
-            name,
-            count,
-        }).collect();
+        let mut operators: Vec<OperatorUsage> = node_counts
+            .into_iter()
+            .map(|((domain, name), count)| OperatorUsage {
+                domain: if domain.is_empty() { "ai.onnx" } else { domain },
+                name,
+                count,
+            })
+            .collect();
 
         operators.sort_by_key(|op| Reverse(op.count));
 
-        let operator_summary = OperatorUsageSummary {
-            operators
-        };
+        let operator_summary = OperatorUsageSummary { operators };
 
-        OnnxSummary {
+        Box::new(OnnxSummary {
             domain: &self.proto.domain,
             name: &self.graph_proto().name,
             version: self.proto.model_version,
@@ -373,33 +395,27 @@ impl OnnxModel {
             producer_name: &self.proto.producer_name,
             producer_version: &self.proto.producer_version,
             ir_version: self.proto.ir_version,
-            opsets: self.proto.opset_import.iter().map(|opset| {
-                summary::OnnxOpset {
-                    name: if opset.domain == "" { "ai.onnx" } else { &opset.domain },
+            opsets: self
+                .proto
+                .opset_import
+                .iter()
+                .map(|opset| summary::OnnxOpset {
+                    name: if opset.domain.is_empty() {
+                        "ai.onnx"
+                    } else {
+                        &opset.domain
+                    },
                     version: opset.version,
-                }
-            }).collect(),
+                })
+                .collect(),
             // Filter out inputs that have initializers or node inputs etc...
-            inputs: self.inputs().filter(|v| v.source.is_none()).map(summary::Value::from).collect(),
+            inputs: self
+                .inputs()
+                .filter(|v| v.source.is_none())
+                .map(summary::Value::from)
+                .collect(),
             outputs: self.outputs().map(summary::Value::from).collect(),
-            operator_summary
-        }
-    }
-
-    fn to_dot(&self) -> impl fmt::Display {
-        let dot_config = [dot::Config::NodeNoLabel];
-
-        let node_attr_getter =
-            |g, n: (usize, &usize)| format!("label = \"{}\"", &self.nodes[*n.1].proto.name);
-
-        format!(
-            "{}",
-            Dot::with_attr_getters(
-                &self.node_graph,
-                &dot_config,
-                &|g, e| String::new(),
-                &node_attr_getter,
-            )
-        )
+            operator_summary,
+        })
     }
 }
