@@ -18,6 +18,9 @@ jobs:
           toolchain: stable
           override: true
 
+      - name: Update apt
+        run: sudo apt-get update
+
       - name: Install protoc
         run: sudo apt-get install -y protobuf-compile
 
