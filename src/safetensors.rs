@@ -12,8 +12,7 @@ type Header = serde_json::value::Map<String, serde_json::Value>;
 
 pub struct Safetensors {
     metadata: Header,
-    tensors: Header,
-    data: Bytes
+    tensors: Header
 }
 
 impl Safetensors {
@@ -30,7 +29,7 @@ impl Safetensors {
 
         let mut header: Header = serde_json::de::from_slice(&header_bytes)?;
 
-        let data = data.slice(header_end..);
+        let _data = data.slice(header_end..);
 
         let metadata = header.remove("__metadata__").and_then(|v| from_value(v).ok()).unwrap_or_default();
 
@@ -38,8 +37,7 @@ impl Safetensors {
 
         Ok(Safetensors {
             metadata,
-            tensors,
-            data
+            tensors
         })
     }
 }
@@ -80,7 +78,7 @@ impl <'a> fmt::Display for SafeTensorsSummary<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = self.filename.unwrap_or("<NO FILENAME>");
         writeln!(f, "Safetensors: {}", name)?;
-        writeln!(f, "")?;
+        writeln!(f)?;
 
         if let Some(architecture) = self.architecture {
             writeln!(f, "architecture: {}", architecture)?;

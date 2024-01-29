@@ -3,7 +3,7 @@ use std::{fmt, io};
 use console::Style;
 use serde::{Serialize, Serializer};
 
-use crate::onnx::{ValueInfo, TypeInfo};
+use crate::onnx::TypeInfo;
 
 pub trait Summary: fmt::Display {
     fn dump_json(&self, writer: &mut dyn io::Write) -> anyhow::Result<()> ;
@@ -22,7 +22,7 @@ pub struct Value<'a> {
     pub ty: TypeInfo<'a>
 }
 
-fn type_info_serializer<'a, S>(ty: &TypeInfo<'a>, s: S) -> Result<S::Ok, S::Error> where S: Serializer {
+fn type_info_serializer<S>(ty: &TypeInfo<'_>, s: S) -> Result<S::Ok, S::Error> where S: Serializer {
     let ty_str = format!("{}", ty);
     s.serialize_str(&ty_str)
 }
@@ -72,17 +72,17 @@ impl <'a> fmt::Display for OnnxSummary<'a> {
             self.name,
             self.version
         )?;
-        if self.doc_string.len() > 0 {
+        if !self.doc_string.is_empty() {
             writeln!(f, "{}", self.doc_string)?;
         }
-        writeln!(f, "")?;
+        writeln!(f)?;
 
         writeln!(
             f,
             "Producer: {} {}",
             self.producer_name, self.producer_version
         )?;
-        writeln!(f, "")?;
+        writeln!(f)?;
 
         writeln!(f, "IR Version: {}", self.ir_version)?;
         if self.opsets.len() == 1 {
@@ -93,7 +93,7 @@ impl <'a> fmt::Display for OnnxSummary<'a> {
             writeln!(f, "{} {}", &opset.name, opset.version)?;
         }
 
-        writeln!(f, "")?;
+        writeln!(f)?;
         writeln!(f, "{}", bold.apply_to("Inputs:"))?;
 
         for input in self.inputs.iter() {
@@ -106,7 +106,7 @@ impl <'a> fmt::Display for OnnxSummary<'a> {
             writeln!(f, "    {}: {}", output.name, output.ty)?;
         }
 
-        writeln!(f, "")?;
+        writeln!(f)?;
         writeln!(f, "Operators:")?;
         for oper in self.operator_summary.operators.iter() {
             writeln!(f, "    {}.{}: {}", oper.domain, oper.name, oper.count)?;

@@ -1,20 +1,20 @@
 use petgraph::dot::{self, Dot};
-use petgraph::graph;
+
 use petgraph::prelude::DiGraphMap;
 use prost::Message;
 use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fmt;
-use std::path::PathBuf;
-use std::{fs, os};
 
 
+
+#[allow(non_snake_case)]
 pub mod onnx_proto {
     include!(concat!(env!("OUT_DIR"), "/onnx.rs"));
 }
 
 
-use onnx_proto::{NodeProto, TensorProto, TypeProto, ValueInfoProto};
+use onnx_proto::{NodeProto, TypeProto, ValueInfoProto};
 
 use crate::model::Model;
 use crate::summary::{OnnxSummary, self, OperatorUsageSummary, OperatorUsage, Summary};
@@ -45,10 +45,6 @@ impl<T> IdMapper<T> {
             mapping: Default::default(),
             values: Default::default(),
         }
-    }
-
-    fn get_by_name(&self, name: &str) -> Option<&T> {
-        self.mapping.get(name).map(|id| &self.values[*id])
     }
 
     fn get_id_by_name(&self, name: &str) -> Option<usize> {
@@ -127,7 +123,7 @@ impl<'a> fmt::Display for TypeInfo<'a> {
                     .as_ref()
                     .map_or(&empty_shape, |shape| &shape.dim);
 
-                if shape.len() > 0 {
+                if !shape.is_empty() {
                     write!(f, "[")?;
 
                     let mut dim_iter = tensor.shape.as_ref().unwrap().dim.iter().peekable();
@@ -203,6 +199,7 @@ pub struct OnnxModel {
     pub proto: onnx_proto::ModelProto,
     values: IdMapper<ValueInfo>,
     nodes: Vec<NodeInfo>,
+    #[allow(dead_code)]
     node_graph: DiGraphMap<usize, usize>,
     inputs: Vec<ValueId>,
     outputs: Vec<ValueId>,
@@ -346,18 +343,20 @@ impl OnnxModel {
         }
     }
 
+    // TODO: Add back dot visualization
+    #[allow(dead_code)]
     fn to_dot(&self) -> impl fmt::Display {
         let dot_config = [dot::Config::NodeNoLabel];
 
         let node_attr_getter =
-            |g, n: (usize, &usize)| format!("label = \"{}\"", &self.nodes[*n.1].proto.name);
+            |_g, n: (usize, &usize)| format!("label = \"{}\"", &self.nodes[*n.1].proto.name);
 
         format!(
             "{}",
             Dot::with_attr_getters(
                 &self.node_graph,
                 &dot_config,
-                &|g, e| String::new(),
+                &|_g, _e| String::new(),
                 &node_attr_getter,
             )
         )
@@ -365,7 +364,7 @@ impl OnnxModel {
 }
 
 impl Model for OnnxModel {
-    fn summary<'a>(&'a self, filename: Option<&'a str>) -> Box<dyn Summary + 'a> {
+    fn summary<'a>(&'a self, _filename: Option<&'a str>) -> Box<dyn Summary + 'a> {
         let mut node_counts = HashMap::new();
 
         for node in self.nodes.iter() {
@@ -374,7 +373,7 @@ impl Model for OnnxModel {
         }
 
         let mut operators: Vec<OperatorUsage> = node_counts.into_iter().map(|((domain, name), count)| OperatorUsage {
-            domain:  if domain == "" { "ai.onnx" } else { domain },
+            domain:  if domain.is_empty() { "ai.onnx" } else { domain },
             name,
             count,
         }).collect();
@@ -395,7 +394,7 @@ impl Model for OnnxModel {
             ir_version: self.proto.ir_version,
             opsets: self.proto.opset_import.iter().map(|opset| {
                 summary::OnnxOpset {
-                    name: if opset.domain == "" { "ai.onnx" } else { &opset.domain },
+                    name: if opset.domain.is_empty() { "ai.onnx" } else { &opset.domain },
                     version: opset.version,
                 }
             }).collect(),

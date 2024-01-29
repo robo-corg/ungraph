@@ -6,8 +6,6 @@ use std::{fs, fmt};
 use std::path::{PathBuf, Path};
 
 use clap::{Parser, ValueEnum};
-use console::style;
-
 use crate::model::Model;
 use crate::onnx::OnnxModel;
 use crate::safetensors::Safetensors;
