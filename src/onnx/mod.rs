@@ -11,10 +11,13 @@ pub mod onnx_proto {
     include!(concat!(env!("OUT_DIR"), "/onnx.rs"));
 }
 
+pub mod summary;
+
 use onnx_proto::{NodeProto, TypeProto, ValueInfoProto};
 
 use crate::model::Model;
-use crate::summary::{self, OnnxSummary, OperatorUsage, OperatorUsageSummary, Summary};
+use crate::summary::Summary;
+use summary::{OnnxSummary, OperatorUsage, OperatorUsageSummary};
 
 type ValueId = usize;
 type NodeId = usize;

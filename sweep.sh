@@ -7,7 +7,7 @@ mkdir -p logs
 
 echo > logs/failures.csv
 
-rm logs/*.txt
+rm logs/*.txt || true
 
 for M in $(fd '.onnx$' .)
 do
